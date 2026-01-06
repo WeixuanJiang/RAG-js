@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(test:*)",
+      "Bash(npm start)",
+      "Bash(npm install:*)",
+      "Bash(node:*)",
+      "WebFetch(domain:js.langchain.com)",
+      "Bash(npm uninstall:*)",
+      "Bash(rm:*)",
+      "WebFetch(domain:docs.tavily.com)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

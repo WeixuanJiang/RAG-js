@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RAG Chatbot</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="style.css" rel="stylesheet">
+</head>
+<body>
+    <div class="chatbot-container">
+        <header class="chatbot-header">
+            <div class="header-left">
+                <h1><i class="fas fa-robot"></i> RAG Chatbot</h1>
+                <p>AI助手基于您的文档回答问题</p>
+            </div>
+            <div class="header-right">
+                <button class="btn btn-secondary" onclick="toggleSidebar()">
+                    <i class="fas fa-cog"></i> 设置
+                </button>
+            </div>
+        </header>
+
+        <!-- Sidebar for settings and upload -->
+        <div class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <h3><i class="fas fa-cog"></i> 设置</h3>
+                <button class="close-sidebar" onclick="toggleSidebar()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            
+            <!-- Upload Section -->
+            <div class="sidebar-section">
+                <h4><i class="fas fa-upload"></i> 上传文档</h4>
+                <div class="upload-area" id="uploadArea">
+                    <div class="upload-content">
+                        <i class="fas fa-cloud-upload-alt"></i>
+                        <p>拖拽文件或点击上传</p>
+                        <p class="file-types">支持: PDF, TXT, DOCX (最大10MB)</p>
+                        <input type="file" id="fileInput" accept=".pdf,.txt,.docx" multiple hidden>
+                        <button class="btn btn-primary" id="selectFileBtn">
+                            <i class="fas fa-folder-open"></i> 选择文件
+                        </button>
+                    </div>
+                </div>
+                <div class="upload-progress" id="uploadProgress" style="display: none;">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progressFill"></div>
+                    </div>
+                    <p id="progressText">上传中...</p>
+                </div>
+            </div>
+
+            <!-- Status Section -->
+            <div class="sidebar-section">
+                <h4><i class="fas fa-info-circle"></i> 知识库状态</h4>
+                <div class="status-grid">
+                    <div class="status-item">
+                        <span class="status-label">文档数量:</span>
+                        <span class="status-value" id="documentCount">0</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">最后更新:</span>
+                        <span class="status-value" id="lastUpdated">从未</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">状态:</span>
+                        <span class="status-value" id="systemStatus">就绪</span>
+                    </div>
+                </div>
+                <button class="btn btn-danger" onclick="clearKnowledgeBase()">
+                    <i class="fas fa-trash"></i> 清空知识库
+                </button>
+            </div>
+
+            <!-- Query Options -->
+            <div class="sidebar-section">
+                <h4><i class="fas fa-sliders-h"></i> 搜索设置</h4>
+                <div class="query-options">
+                    <label>
+                        <input type="checkbox" id="includeScores"> 显示相似度分数
+                    </label>
+                    <label>
+                        搜索模式: 
+                        <select id="searchMode">
+                            <option value="documents">文档知识库</option>
+                            <option value="web">网络搜索</option>
+                            <option value="combined" selected>组合搜索</option>
+                        </select>
+                    </label>
+                    <label>
+                        搜索类型: 
+                        <select id="searchType">
+                            <option value="vector">向量搜索</option>
+                            <option value="hybrid" selected>混合搜索</option>
+                        </select>
+                    </label>
+                    <label>
+                        最大结果数: 
+                        <select id="maxResults">
+                            <option value="3">3</option>
+                            <option value="4" selected>4</option>
+                            <option value="5">5</option>
+                            <option value="8">8</option>
+                        </select>
+                    </label>
+                    <label id="webBackendLabel" style="display: none;">
+                        网络搜索类型: 
+                        <select id="webBackend">
+                            <option value="web" selected>常规搜索</option>
+                            <option value="news">新闻搜索</option>
+                        </select>
+                    </label>
+                </div>
+                <button class="btn btn-secondary" onclick="clearChatHistory()">
+                    <i class="fas fa-broom"></i> 清空聊天记录
+                </button>
+            </div>
+        </div>
+
+        <!-- Main chat area -->
+        <div class="chat-main">
+            <div class="chat-messages" id="chatMessages">
+                <div class="welcome-message">
+                    <div class="bot-avatar">
+                        <i class="fas fa-robot"></i>
+                    </div>
+                    <div class="message-content">
+                        <p>您好！我是您的AI助手。请上传一些文档，然后您就可以向我提问了。</p>
+                        <p>我会基于您上传的文档内容来回答问题。</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="chat-input-container">
+                <div class="input-wrapper">
+                    <textarea 
+                        id="messageInput" 
+                        placeholder="输入您的问题..."
+                        rows="1"
+                    ></textarea>
+                    <button class="send-btn" onclick="sendMessage()" id="sendBtn">
+                        <i class="fas fa-paper-plane"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Loading Overlay -->
+        <div class="loading-overlay" id="loadingOverlay" style="display: none;">
+            <div class="loading-spinner">
+                <i class="fas fa-spinner fa-spin"></i>
+                <p>Processing your request...</p>
+            </div>
+        </div>
+
+        <!-- Toast Notifications -->
+        <div class="toast-container" id="toastContainer"></div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
