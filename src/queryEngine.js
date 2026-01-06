@@ -12,10 +12,10 @@ class QueryEngine {
         if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY === 'your_openai_api_key_here') {
             throw new Error('OpenAI API key is required. Please set OPENAI_API_KEY in your .env file.');
         }
-        
+
         this.vectorStore = vectorStore;
         this.hybridSearchEngine = new HybridSearchEngine(vectorStore);
-        
+
         // Initialize question classifier
         try {
             this.questionClassifier = new QuestionClassifier();
@@ -43,7 +43,7 @@ class QueryEngine {
             modelName: 'gpt-4o-mini',
             temperature: 0.1,
         });
-        
+
         // Direct query prompt template (for questions that don't need search)
         this.directPromptTemplate = PromptTemplate.fromTemplate(`
 You are Claude, a helpful and friendly AI assistant created by Anthropic. Answer the user's question directly using your general knowledge.
@@ -92,13 +92,13 @@ Answer:
             this.llm,
             new StringOutputParser()
         ]);
-        
+
         this.searchChain = RunnableSequence.from([
             this.searchPromptTemplate,
             this.llm,
             new StringOutputParser()
         ]);
-        
+
         // Keep general chain for backward compatibility
         this.generalChain = this.directChain;
     }
@@ -114,17 +114,17 @@ Answer:
             } = options;
 
             console.log(`Processing query: "${question}"`);
-            
+
             // Classify the question unless forced to search mode
             if (!forceSearchMode && this.questionClassifier) {
                 try {
                     const classification = await this.questionClassifier.classifyQuestion(question);
-                    
+
                     if (classification === 'DIRECT') {
                         console.log('✅ Question classified as DIRECT - using AI knowledge directly');
                         return await this.directQuery(question, { conversationHistory });
                     }
-                    
+
                     console.log('🔍 Question classified as SEARCH - proceeding with vector search');
                 } catch (error) {
                     console.warn('⚠️  Classification failed, falling back to search mode:', error.message);
@@ -136,46 +136,46 @@ Answer:
                     console.log('🔍 Using search mode (forced)');
                 }
             }
-            
+
             // Get relevant documents from vector store
             const searchResults = await this.vectorStore.similaritySearch(question, maxResults);
-            
+
             // Log search results for debugging
             console.log(`Search results for "${question}":`, searchResults.map(r => ({ score: r.score, preview: r.content.substring(0, 50) })));
-            
+
             // Filter by minimum score if specified
-            const filteredResults = searchResults.filter(result => 
+            const filteredResults = searchResults.filter(result =>
                 result.score >= minScore
             );
-            
+
             console.log(`Filtered results: ${filteredResults.length}/${searchResults.length} (minScore: ${minScore})`);
-            
+
             // If no relevant documents found or all scores are too low, use general LLM
             if (searchResults.length === 0 || filteredResults.length === 0) {
                 console.log('No relevant documents found, using general LLM response...');
-                
+
                 // Format conversation history
                 const formattedHistory = this.formatConversationHistory(conversationHistory);
-                
+
                 // Generate answer using general LLM chain
                 const answer = await this.generalChain.invoke({
                     question: question,
                     conversationHistory: formattedHistory
                 });
-                
+
                 return {
                     text: answer,
                     sources: [],
                     searchResults: includeScores ? searchResults : []
                 };
             }
-            
+
             // Prepare context from search results
             const context = this.formatContext(filteredResults);
-            
+
             // Format conversation history
             const formattedHistory = this.formatConversationHistory(conversationHistory);
-            
+
             // Generate answer using the search chain
             console.log('Generating answer with LLM using search context...');
             const answer = await this.searchChain.invoke({
@@ -183,18 +183,18 @@ Answer:
                 question: question,
                 conversationHistory: formattedHistory
             });
-            
+
             // Extract unique sources
             const sources = this.extractSources(filteredResults);
-            
+
             console.log(`Answer generated. Used ${sources.length} source(s).`);
-            
+
             return {
                 text: answer,
                 sources: sources,
                 searchResults: includeScores ? filteredResults : []
             };
-            
+
         } catch (error) {
             console.error('Query processing failed:', error);
             throw new Error(`Query failed: ${error.message}`);
@@ -212,18 +212,18 @@ Answer:
             const { conversationHistory = [], maxResults = 3 } = options;
 
             console.log(`Processing DIRECT query: "${question}"`);
-            
+
             // Format conversation history
             const formattedHistory = this.formatConversationHistory(conversationHistory);
-            
+
             // Generate answer using direct chain (no context)
             const answer = await this.directChain.invoke({
                 question: question,
                 conversationHistory: formattedHistory
             });
-            
+
             console.log('Direct answer generated using AI knowledge');
-            
+
             // Even for direct answers, try to find relevant sources for user reference
             let sources = [];
             let searchResults = [];
@@ -244,14 +244,14 @@ Answer:
                 console.warn('Failed to get reference sources for direct answer:', sourceError.message);
                 // Continue without sources - not critical for direct answers
             }
-            
+
             return {
                 text: answer,
                 sources: sources, // Include relevant sources for reference
                 searchResults: searchResults,
                 queryType: 'direct'
             };
-            
+
         } catch (error) {
             console.error('Direct query processing failed:', error);
             throw new Error(`Direct query failed: ${error.message}`);
@@ -262,7 +262,7 @@ Answer:
         return searchResults.map((result, index) => {
             const source = result.metadata.source || 'Unknown';
             const chunkIndex = result.metadata.chunkIndex || 0;
-            
+
             return `Document ${index + 1} (Source: ${source}, Chunk: ${chunkIndex + 1}):
 ${result.content}
 `;
@@ -276,13 +276,13 @@ ${result.content}
             console.log('First result:', JSON.stringify(searchResults[0], null, 2));
         }
         const sourceMap = new Map();
-        
+
         searchResults.forEach(result => {
             const source = result.metadata.source || 'Unknown';
             const chunkIndex = result.metadata.chunkIndex || 0;
             const score = result.score;
             const content = result.content || result.pageContent || '';
-            
+
             console.log('Debug - processing result:', {
                 source,
                 chunkIndex,
@@ -290,7 +290,7 @@ ${result.content}
                 contentLength: content.length,
                 contentPreview: content.substring(0, 100)
             });
-            
+
             if (!sourceMap.has(source)) {
                 sourceMap.set(source, {
                     filename: source,
@@ -299,114 +299,21 @@ ${result.content}
                     processedAt: result.metadata.processedAt
                 });
             }
-            
+
             sourceMap.get(source).chunks.push({
                 chunkIndex: chunkIndex + 1,
                 score: score,
                 content: content
             });
         });
-        
+
         const finalResult = Array.from(sourceMap.values()).map(source => ({
             ...source,
             chunks: source.chunks.sort((a, b) => a.chunkIndex - b.chunkIndex)
         }));
-        
+
         console.log('Debug - extractSources output:', JSON.stringify(finalResult, null, 2));
         return finalResult;
-    }
-
-    async queryWithCustomPrompt(question, customPrompt, options = {}) {
-        try {
-            const { maxResults = 4 } = options;
-            
-            // Get relevant documents
-            const searchResults = await this.vectorStore.similaritySearch(question, maxResults);
-            
-            if (searchResults.length === 0) {
-                return {
-                    text: "No relevant documents found.",
-                    sources: []
-                };
-            }
-            
-            // Create custom prompt template
-            const customPromptTemplate = PromptTemplate.fromTemplate(customPrompt);
-            const customChain = RunnableSequence.from([
-                customPromptTemplate,
-                this.llm,
-                new StringOutputParser()
-            ]);
-            
-            const context = this.formatContext(searchResults);
-            
-            const answer = await customChain.invoke({
-                context: context,
-                question: question
-            });
-            
-            const sources = this.extractSources(searchResults);
-            
-            return {
-                text: answer,
-                sources: sources,
-                searchResults: searchResults
-            };
-            
-        } catch (error) {
-            console.error('Custom query failed:', error);
-            throw new Error(`Custom query failed: ${error.message}`);
-        }
-    }
-
-    async summarizeDocuments(options = {}) {
-        try {
-            const { maxResults = 10 } = options;
-            
-            // Get a sample of documents
-            const searchResults = await this.vectorStore.similaritySearch(
-                "summary overview main points key information", 
-                maxResults
-            );
-            
-            if (searchResults.length === 0) {
-                return {
-                    text: "No documents available to summarize.",
-                    sources: []
-                };
-            }
-            
-            const context = this.formatContext(searchResults);
-            
-            const summaryPrompt = PromptTemplate.fromTemplate(`
-Please provide a comprehensive summary of the following documents. 
-Highlight the main topics, key points, and important information.
-Organize the summary in a clear and structured way.
-
-Documents:
-{context}
-
-Summary:
-`);
-            
-            const summaryChain = RunnableSequence.from([
-                summaryPrompt,
-                this.llm,
-                new StringOutputParser()
-            ]);
-            
-            const summary = await summaryChain.invoke({ context });
-            const sources = this.extractSources(searchResults);
-            
-            return {
-                text: summary,
-                sources: sources
-            };
-            
-        } catch (error) {
-            console.error('Document summarization failed:', error);
-            throw new Error(`Summarization failed: ${error.message}`);
-        }
     }
 
     /**
@@ -443,9 +350,9 @@ Summary:
             } = options;
 
             console.log(`Processing hybrid query: "${question}" (type: ${searchType})`);
-            
+
             let searchResults = [];
-            
+
             // 根据搜索类型选择不同的搜索策略
             switch (searchType) {
                 case 'keyword':
@@ -463,7 +370,7 @@ Summary:
                     });
                     break;
             }
-            
+
             if (searchResults.length === 0) {
                 return {
                     text: "I don't have any relevant information in my knowledge base to answer your question. Please upload some documents first.",
@@ -472,25 +379,25 @@ Summary:
                     searchType: searchType
                 };
             }
-            
+
             // 过滤低分结果
-            const filteredResults = searchResults.filter(result => 
+            const filteredResults = searchResults.filter(result =>
                 result.score >= minScore
             );
-            
+
             // If no relevant documents found or all scores are too low, use general LLM
             if (searchResults.length === 0 || filteredResults.length === 0) {
                 console.log('No relevant documents found in hybrid search, using general LLM response...');
-                
+
                 // Format conversation history
                 const formattedHistory = this.formatConversationHistory(conversationHistory);
-                
+
                 // Generate answer using general LLM chain
                 const answer = await this.generalChain.invoke({
                     question: question,
                     conversationHistory: formattedHistory
                 });
-                
+
                 return {
                     text: answer,
                     sources: [],
@@ -503,16 +410,16 @@ Summary:
                     }
                 };
             }
-            
+
             // 取前maxResults个结果
             const finalResults = filteredResults.slice(0, maxResults);
-            
+
             // 准备上下文
             const context = this.formatHybridContext(finalResults);
-            
+
             // 格式化对话历史
             const formattedHistory = this.formatConversationHistory(conversationHistory);
-            
+
             // 使用LLM生成答案
             console.log('Generating answer with LLM using hybrid search results...');
             const answer = await this.generalChain.invoke({
@@ -520,14 +427,14 @@ Summary:
                 question: question,
                 conversationHistory: formattedHistory
             });
-            
+
             // 提取来源
             console.log('Debug - About to call extractSources with finalResults:', finalResults.length);
             const sources = this.extractSources(finalResults);
-            
+
             console.log(`Hybrid answer generated. Used ${sources.length} source(s) from ${searchType} search.`);
             console.log('Debug - Final sources structure:', JSON.stringify(sources, null, 2));
-            
+
             return {
                 text: answer,
                 sources: sources,
@@ -539,7 +446,7 @@ Summary:
                     finalResults: finalResults.length
                 }
             };
-            
+
         } catch (error) {
             console.error('Hybrid query processing failed:', error);
             throw new Error(`Hybrid query failed: ${error.message}`);
@@ -556,7 +463,7 @@ Summary:
             const source = result.metadata.source || 'Unknown';
             const chunkIndex = result.metadata.chunkIndex || 0;
             const searchInfo = this.getSearchInfo(result);
-            
+
             return `Document ${index + 1} (Source: ${source}, Chunk: ${chunkIndex + 1}${searchInfo}):
 ${result.content}
 `;
@@ -570,19 +477,19 @@ ${result.content}
      */
     getSearchInfo(result) {
         const info = [];
-        
+
         if (result.searchType) {
             info.push(`Type: ${result.searchType}`);
         }
-        
+
         if (result.keywordRank) {
             info.push(`Keyword Rank: ${result.keywordRank}`);
         }
-        
+
         if (result.semanticRank) {
             info.push(`Semantic Rank: ${result.semanticRank}`);
         }
-        
+
         return info.length > 0 ? `, ${info.join(', ')}` : '';
     }
 
@@ -606,7 +513,7 @@ ${result.content}
 
         // 只保留最近的5轮对话以避免上下文过长
         const recentHistory = conversationHistory.slice(-10); // 5轮对话 = 10条消息
-        
+
         return recentHistory.map(msg => {
             const role = msg.role === 'user' ? 'User' : 'Assistant';
             return `${role}: ${msg.content}`;
@@ -629,7 +536,7 @@ ${result.content}
             } = options;
 
             console.log(`Processing web search query: "${question}"`);
-            
+
             // Check if Tavily search is available
             if (!this.tavilySearch) {
                 return {
@@ -640,13 +547,13 @@ ${result.content}
                     error: 'Tavily API key not configured'
                 };
             }
-            
+
             // Configure search wrapper
             this.tavilySearch.maxResults = maxResults;
-            
+
             // Perform web search
             const webResults = await this.tavilySearch.searchWithMetadata(question);
-            
+
             if (webResults.length === 0) {
                 return {
                     text: "No web results found for your query.",
@@ -661,7 +568,7 @@ ${result.content}
                 const title = result.metadata.title;
                 const url = result.metadata.url;
                 const content = result.content;
-                
+
                 return `Web Result ${index + 1}:
 Title: ${title}
 URL: ${url}
@@ -672,7 +579,7 @@ Content: ${content}`;
             if (includeAnswer) {
                 // Format conversation history
                 const formattedHistory = this.formatConversationHistory(conversationHistory);
-                
+
                 // Generate answer using web search results
                 const webSearchPrompt = PromptTemplate.fromTemplate(`
 You are a helpful AI assistant. Answer the user's question based on web search results.
@@ -728,7 +635,7 @@ Answer:
                     searchDepth: this.tavilySearch.searchDepth
                 }
             };
-            
+
         } catch (error) {
             console.error('Web search query failed:', error);
             throw new Error(`Web search failed: ${error.message}`);
@@ -752,30 +659,30 @@ Answer:
             } = options;
 
             console.log(`Processing combined search query: "${question}"`);
-            
+
             // Check if Tavily search is available for web search
             if (!this.tavilySearch) {
                 console.warn('Tavily search not available, falling back to document search only');
-                return await this.hybridQuery(question, { 
+                return await this.hybridQuery(question, {
                     maxResults: maxDocResults,
                     searchType: 'hybrid'
                 });
             }
-            
+
             // Perform both searches in parallel
             const [webSearchResult, docSearchResult] = await Promise.all([
-                this.webSearchQuery(question, { 
-                    maxResults: maxWebResults, 
-                    includeAnswer: false 
+                this.webSearchQuery(question, {
+                    maxResults: maxWebResults,
+                    includeAnswer: false
                 }),
-                this.hybridQuery(question, { 
+                this.hybridQuery(question, {
                     maxResults: maxDocResults,
                     searchType: 'hybrid'
                 })
             ]);
 
             // Combine contexts
-            const webContext = webSearchResult.searchResults.map((result, index) => 
+            const webContext = webSearchResult.searchResults.map((result, index) =>
                 `Web Source ${index + 1} (${result.metadata.title}): ${result.content}`
             ).join('\n\n');
 
@@ -793,7 +700,7 @@ ${docContext || 'No relevant documents found in knowledge base.'}
 
             // Format conversation history
             const formattedHistory = this.formatConversationHistory(conversationHistory);
-            
+
             // Generate combined answer
             const combinedPrompt = PromptTemplate.fromTemplate(`
 You are a helpful AI assistant with access to both web search results and a document knowledge base.
@@ -846,7 +753,7 @@ Answer:
                     totalResults: webSearchResult.searchResults.length + (docSearchResult.searchResults?.length || 0)
                 }
             };
-            
+
         } catch (error) {
             console.error('Combined search query failed:', error);
             throw new Error(`Combined search failed: ${error.message}`);
