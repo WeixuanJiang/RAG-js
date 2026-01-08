@@ -1,117 +1,206 @@
+const { Document } = require('@langchain/core/documents');
+const { BaseRetriever } = require('@langchain/core/retrievers');
 const natural = require('natural');
 const { TfIdf } = natural;
+
+/**
+ * Custom BM25 Retriever compatible with LangChain
+ */
+class BM25Retriever extends BaseRetriever {
+    constructor(documents, k = 4) {
+        super();
+        this.documents = documents;
+        this.k = k;
+        this.tfidf = new TfIdf();
+        this._buildIndex();
+    }
+
+    _buildIndex() {
+        this.documents.forEach(doc => {
+            const content = doc.pageContent || doc.content || '';
+            const processedText = this._preprocessText(content);
+            this.tfidf.addDocument(processedText);
+        });
+    }
+
+    _preprocessText(text) {
+        if (!text || typeof text !== 'string') {
+            return '';
+        }
+        return text
+            .toLowerCase()
+            .replace(/[^\w\s\u4e00-\u9fff]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+
+    async _getRelevantDocuments(query) {
+        const processedQuery = this._preprocessText(query);
+        const queryTerms = processedQuery.split(' ').filter(term => term.length > 0);
+
+        if (queryTerms.length === 0) {
+            return [];
+        }
+
+        const scores = [];
+        for (let i = 0; i < this.documents.length; i++) {
+            let score = 0;
+            queryTerms.forEach(term => {
+                score += this.tfidf.tfidf(term, i);
+            });
+
+            if (score > 0) {
+                scores.push({ index: i, score });
+            }
+        }
+
+        return scores
+            .sort((a, b) => b.score - a.score)
+            .slice(0, this.k)
+            .map(item => this.documents[item.index]);
+    }
+}
+
+/**
+ * Ensemble Retriever that combines multiple retrievers using RRF
+ */
+class EnsembleRetriever extends BaseRetriever {
+    constructor(retrievers, weights) {
+        super();
+        this.retrievers = retrievers;
+        this.weights = weights || retrievers.map(() => 1.0 / retrievers.length);
+    }
+
+    async _getRelevantDocuments(query) {
+        // Get results from all retrievers
+        const allResults = await Promise.all(
+            this.retrievers.map(retriever => retriever.getRelevantDocuments(query))
+        );
+
+        // Apply Reciprocal Rank Fusion
+        const k = 60;
+        const resultMap = new Map();
+
+        allResults.forEach((results, retrieverIndex) => {
+            const weight = this.weights[retrieverIndex];
+            results.forEach((doc, rank) => {
+                const docId = this._getDocumentId(doc);
+                const rrfScore = weight / (k + rank + 1);
+
+                if (resultMap.has(docId)) {
+                    resultMap.get(docId).score += rrfScore;
+                } else {
+                    resultMap.set(docId, { doc, score: rrfScore });
+                }
+            });
+        });
+
+        // Sort by score and return documents
+        return Array.from(resultMap.values())
+            .sort((a, b) => b.score - a.score)
+            .map(item => item.doc);
+    }
+
+    _getDocumentId(doc) {
+        const metadata = doc.metadata || {};
+        return `${metadata.source || 'unknown'}_${metadata.chunkIndex || 0}`;
+    }
+}
 
 class HybridSearchEngine {
     constructor(vectorStore) {
         this.vectorStore = vectorStore;
-        this.tfidf = new TfIdf();
+        this.bm25Retriever = null;
+        this.ensembleRetriever = null;
         this.documents = [];
-        this.documentMetadata = [];
         this.isIndexed = false;
     }
 
     /**
-     * 构建BM25索引
-     * @param {Array} documents - 文档数组，每个文档包含content和metadata
+     * Build BM25 and ensemble retriever index
+     * @param {Array} documents - Array of documents with content and metadata
+     * @param {Object} vectorStore - The vector store instance to use for semantic search
      */
-    async buildIndex(documents) {
+    async buildIndex(documents, vectorStore) {
         console.log(`Building hybrid search index for ${documents.length} documents...`);
-        
+
+        // Store documents and vectorStore for later use
         this.documents = documents;
-        this.documentMetadata = documents.map(doc => doc.metadata);
-        
-        // 清空现有索引
-        this.tfidf = new TfIdf();
-        
-        // 为每个文档构建TF-IDF索引
-        documents.forEach((doc, index) => {
-            // 获取文档内容，支持不同的属性名
-            const content = doc.pageContent || doc.content || '';
-            // 预处理文本：转换为小写，移除标点符号
-            const processedText = this.preprocessText(content);
-            this.tfidf.addDocument(processedText);
+        this.vectorStore = vectorStore;
+
+        // Convert documents to LangChain Document format if needed
+        const langchainDocs = documents.map(doc => {
+            if (doc instanceof Document) {
+                return doc;
+            }
+            return new Document({
+                pageContent: doc.pageContent || doc.content || '',
+                metadata: doc.metadata || {}
+            });
         });
-        
+
+        // Create BM25 retriever with the documents
+        this.bm25Retriever = new BM25Retriever(langchainDocs, 10);
+
+        // Create vector store retriever
+        const vectorRetriever = vectorStore.asRetriever();
+
+        // Create ensemble retriever combining BM25 and vector search
+        // Default weights: 0.3 for BM25, 0.7 for vector search
+        this.ensembleRetriever = new EnsembleRetriever(
+            [this.bm25Retriever, vectorRetriever],
+            [0.3, 0.7]
+        );
+
         this.isIndexed = true;
         console.log('Hybrid search index built successfully');
     }
 
     /**
-     * 文本预处理
-     * @param {string} text - 原始文本
-     * @returns {string} - 处理后的文本
-     */
-    preprocessText(text) {
-        // 添加空值检查
-        if (!text || typeof text !== 'string') {
-            return '';
-        }
-        
-        return text
-            .toLowerCase()
-            .replace(/[^\w\s\u4e00-\u9fff]/g, ' ') // 保留英文、数字、空格和中文字符
-            .replace(/\s+/g, ' ')
-            .trim();
-    }
-
-    /**
-     * BM25关键词搜索
-     * @param {string} query - 查询字符串
-     * @param {number} k - 返回结果数量
-     * @returns {Array} - 搜索结果
+     * BM25 keyword search
+     * @param {string} query - Query string
+     * @param {number} k - Number of results to return
+     * @returns {Array} - Search results
      */
     async keywordSearch(query, k = 10) {
-        if (!this.isIndexed) {
+        if (!this.isIndexed || !this.bm25Retriever) {
             console.warn('Index not built yet, returning empty results');
             return [];
         }
 
-        const processedQuery = this.preprocessText(query);
-        const queryTerms = processedQuery.split(' ').filter(term => term.length > 0);
-        
-        if (queryTerms.length === 0) {
+        try {
+            // Set k for this retriever instance
+            this.bm25Retriever.k = k;
+
+            // Get documents from BM25 retriever
+            const results = await this.bm25Retriever.getRelevantDocuments(query);
+
+            // Convert to our expected format
+            return results.map((doc, index) => ({
+                content: doc.pageContent,
+                metadata: doc.metadata,
+                score: 1.0 / (index + 1), // Approximate score based on rank
+                searchType: 'keyword'
+            }));
+        } catch (error) {
+            console.error('Keyword search failed:', error);
             return [];
         }
-
-        // 计算每个文档的BM25分数
-        const scores = [];
-        
-        for (let i = 0; i < this.documents.length; i++) {
-            let score = 0;
-            
-            queryTerms.forEach(term => {
-                const tfidfScore = this.tfidf.tfidf(term, i);
-                score += tfidfScore;
-            });
-            
-            if (score > 0) {
-                const content = this.documents[i].pageContent || this.documents[i].content || '';
-                scores.push({
-                    content: content,
-                    metadata: this.documents[i].metadata,
-                    score: score,
-                    searchType: 'keyword'
-                });
-            }
-        }
-        
-        // 按分数排序并返回前k个结果
-        return scores
-            .sort((a, b) => b.score - a.score)
-            .slice(0, k);
     }
 
     /**
-     * 语义搜索（使用现有的向量搜索）
-     * @param {string} query - 查询字符串
-     * @param {number} k - 返回结果数量
-     * @returns {Array} - 搜索结果
+     * Semantic search using vector store
+     * @param {string} query - Query string
+     * @param {number} k - Number of results to return
+     * @returns {Array} - Search results
      */
     async semanticSearch(query, k = 10) {
         try {
             const results = await this.vectorStore.similaritySearch(query, k);
             return results.map(result => ({
-                ...result,
+                content: result.pageContent || result.content,
+                metadata: result.metadata,
+                score: result.score || 0,
                 searchType: 'semantic'
             }));
         } catch (error) {
@@ -121,63 +210,74 @@ class HybridSearchEngine {
     }
 
     /**
-     * 混合搜索：结合关键词搜索和语义搜索
-     * @param {string} query - 查询字符串
-     * @param {Object} options - 搜索选项
-     * @returns {Array} - 融合后的搜索结果
+     * Hybrid search combining keyword and semantic search
+     * @param {string} query - Query string
+     * @param {Object} options - Search options
+     * @returns {Array} - Fused search results
      */
     async hybridSearch(query, options = {}) {
         const {
             maxResults = 4,
             keywordWeight = 0.3,
-            semanticWeight = 0.7,
-            keywordResults = 10,
-            semanticResults = 10
+            semanticWeight = 0.7
         } = options;
 
         console.log(`Performing hybrid search for: "${query}"`);
-        
-        // 并行执行关键词搜索和语义搜索
-        const [keywordSearchResults, semanticSearchResults] = await Promise.all([
-            this.keywordSearch(query, keywordResults),
-            this.semanticSearch(query, semanticResults)
-        ]);
 
-        console.log(`Keyword search found ${keywordSearchResults.length} results`);
-        console.log(`Semantic search found ${semanticSearchResults.length} results`);
+        if (!this.isIndexed || !this.ensembleRetriever) {
+            console.warn('Index not built yet, falling back to semantic search only');
+            const results = await this.semanticSearch(query, maxResults);
+            return results.map(r => ({ ...r, searchType: 'hybrid' }));
+        }
 
-        // 融合结果
-        const fusedResults = this.fuseResults(
-            keywordSearchResults,
-            semanticSearchResults,
-            keywordWeight,
-            semanticWeight
-        );
+        try {
+            // Update ensemble retriever weights if provided
+            if (keywordWeight !== 0.3 || semanticWeight !== 0.7) {
+                this.ensembleRetriever = new EnsembleRetriever(
+                    [this.bm25Retriever, this.vectorStore.asRetriever()],
+                    [keywordWeight, semanticWeight]
+                );
+            }
 
-        // 返回前maxResults个结果
-        const finalResults = fusedResults.slice(0, maxResults);
-        console.log(`Returning ${finalResults.length} fused results`);
-        
-        return finalResults;
+            // Set k for BM25 retriever
+            this.bm25Retriever.k = maxResults * 2;
+
+            // Get results from ensemble retriever
+            const results = await this.ensembleRetriever.getRelevantDocuments(query);
+
+            // Convert to our expected format and limit results
+            const formattedResults = results.slice(0, maxResults).map((doc, index) => ({
+                content: doc.pageContent,
+                metadata: doc.metadata,
+                score: 1.0 / (index + 1), // Approximate score based on rank
+                searchType: 'hybrid'
+            }));
+
+            console.log(`Returning ${formattedResults.length} hybrid search results`);
+            return formattedResults;
+
+        } catch (error) {
+            console.error('Hybrid search failed:', error);
+            // Fallback to semantic search
+            const results = await this.semanticSearch(query, maxResults);
+            return results.map(r => ({ ...r, searchType: 'hybrid' }));
+        }
     }
 
     /**
-     * 结果融合算法（Reciprocal Rank Fusion）
-     * @param {Array} keywordResults - 关键词搜索结果
-     * @param {Array} semanticResults - 语义搜索结果
-     * @param {number} keywordWeight - 关键词权重
-     * @param {number} semanticWeight - 语义权重
-     * @returns {Array} - 融合后的结果
+     * Legacy method for backward compatibility
+     * Results fusion using Reciprocal Rank Fusion (RRF)
+     * Note: This is now handled internally by EnsembleRetriever
      */
     fuseResults(keywordResults, semanticResults, keywordWeight, semanticWeight) {
         const resultMap = new Map();
-        const k = 60; // RRF参数
+        const k = 60; // RRF parameter
 
-        // 处理关键词搜索结果
+        // Process keyword search results
         keywordResults.forEach((result, index) => {
             const docId = this.getDocumentId(result);
             const rrfScore = keywordWeight / (k + index + 1);
-            
+
             if (resultMap.has(docId)) {
                 const existing = resultMap.get(docId);
                 existing.fusedScore += rrfScore;
@@ -195,11 +295,11 @@ class HybridSearchEngine {
             }
         });
 
-        // 处理语义搜索结果
+        // Process semantic search results
         semanticResults.forEach((result, index) => {
             const docId = this.getDocumentId(result);
             const rrfScore = semanticWeight / (k + index + 1);
-            
+
             if (resultMap.has(docId)) {
                 const existing = resultMap.get(docId);
                 existing.fusedScore += rrfScore;
@@ -217,7 +317,7 @@ class HybridSearchEngine {
             }
         });
 
-        // 按融合分数排序
+        // Sort by fused score
         return Array.from(resultMap.values())
             .sort((a, b) => b.fusedScore - a.fusedScore)
             .map(result => ({
@@ -233,9 +333,9 @@ class HybridSearchEngine {
     }
 
     /**
-     * 生成文档唯一标识
-     * @param {Object} result - 搜索结果
-     * @returns {string} - 文档ID
+     * Generate unique document identifier
+     * @param {Object} result - Search result
+     * @returns {string} - Document ID
      */
     getDocumentId(result) {
         const metadata = result.metadata || {};
@@ -243,23 +343,24 @@ class HybridSearchEngine {
     }
 
     /**
-     * 重建索引（当文档更新时调用）
+     * Rebuild index when documents are updated
      */
     async rebuildIndex() {
-        if (this.documents.length > 0) {
-            await this.buildIndex(this.documents);
+        if (this.documents.length > 0 && this.vectorStore) {
+            await this.buildIndex(this.documents, this.vectorStore);
         }
     }
 
     /**
-     * 获取索引统计信息
-     * @returns {Object} - 统计信息
+     * Get index statistics
+     * @returns {Object} - Statistics
      */
     getIndexStats() {
         return {
             isIndexed: this.isIndexed,
             documentCount: this.documents.length,
-            vocabularySize: this.isIndexed ? Object.keys(this.tfidf.documents[0] || {}).length : 0
+            hasEnsembleRetriever: this.ensembleRetriever !== null,
+            hasBM25Retriever: this.bm25Retriever !== null
         };
     }
 }

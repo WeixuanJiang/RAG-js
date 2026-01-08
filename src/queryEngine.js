@@ -46,7 +46,7 @@ class QueryEngine {
 
         // Direct query prompt template (for questions that don't need search)
         this.directPromptTemplate = PromptTemplate.fromTemplate(`
-You are Claude, a helpful and friendly AI assistant created by Anthropic. Answer the user's question directly using your general knowledge.
+You are a friendly AI assistant. Answer the user's question directly using your general knowledge.
 Respond in the same language as the user's question. For Chinese questions, answer in Chinese.
 For greetings and casual conversations, respond warmly and appropriately.
 
@@ -323,7 +323,7 @@ ${result.content}
     async buildHybridIndex(documents) {
         try {
             console.log('Building hybrid search index...');
-            await this.hybridSearchEngine.buildIndex(documents);
+            await this.hybridSearchEngine.buildIndex(documents, this.vectorStore);
             console.log('Hybrid search index built successfully');
         } catch (error) {
             console.error('Failed to build hybrid index:', error);
@@ -655,17 +655,18 @@ Answer:
                 maxDocResults = 3,
                 conversationHistory = [],
                 webWeight = 0.5,
-                docWeight = 0.5
+                docWeight = 0.5,
+                searchType = 'hybrid'  // Default to hybrid, but allow override
             } = options;
 
-            console.log(`Processing combined search query: "${question}"`);
+            console.log(`Processing combined search query: "${question}" (searchType: ${searchType})`);
 
             // Check if Tavily search is available for web search
             if (!this.tavilySearch) {
                 console.warn('Tavily search not available, falling back to document search only');
                 return await this.hybridQuery(question, {
                     maxResults: maxDocResults,
-                    searchType: 'hybrid'
+                    searchType: searchType  // Use the passed searchType
                 });
             }
 
@@ -677,7 +678,8 @@ Answer:
                 }),
                 this.hybridQuery(question, {
                     maxResults: maxDocResults,
-                    searchType: 'hybrid'
+                    searchType: searchType,  // Use the passed searchType
+                    includeScores: true  // Include search results for logging and stats
                 })
             ]);
 

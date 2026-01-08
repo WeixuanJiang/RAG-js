@@ -10,7 +10,7 @@ class VectorStore {
         if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY === 'your_openai_api_key_here') {
             throw new Error('OpenAI API key is required. Please set OPENAI_API_KEY in your .env file.');
         }
-        
+
         this.embeddings = new OpenAIEmbeddings({
             openAIApiKey: process.env.OPENAI_API_KEY,
             modelName: 'text-embedding-ada-002'
@@ -74,23 +74,23 @@ class VectorStore {
             }
 
             console.log(`Adding ${documents.length} document chunks to vector store...`);
-            
+
             // Add documents to the vector store
             await this.vectorStore.addDocuments(documents);
-            
+
             // Build hybrid search index with the new documents
-            await this.hybridSearchEngine.buildIndex(documents);
-            
+            await this.hybridSearchEngine.buildIndex(documents, this.vectorStore);
+
             // Update document count and last updated time
             this.documentsCount += documents.length;
             this.lastUpdated = new Date().toISOString();
-            
+
             // Save the updated vector store
             await this.saveVectorStore();
-            
+
             console.log(`Successfully added ${documents.length} chunks. Total: ${this.documentsCount}`);
             console.log('Hybrid search index updated');
-            
+
             return {
                 added: documents.length,
                 total: this.documentsCount
@@ -116,16 +116,16 @@ class VectorStore {
             }
 
             console.log(`Searching for: "${query}" (top ${k} results)`);
-            
+
             const results = await this.vectorStore.similaritySearchWithScore(query, k);
-            
+
             // Filter out dummy initialization document
-            const filteredResults = results.filter(([doc, score]) => 
+            const filteredResults = results.filter(([doc, score]) =>
                 doc.metadata.type !== 'dummy'
             );
-            
+
             console.log(`Found ${filteredResults.length} relevant documents`);
-            
+
             return filteredResults.map(([doc, score]) => ({
                 content: doc.pageContent,
                 metadata: doc.metadata,
@@ -150,17 +150,17 @@ class VectorStore {
 
             // Save vector store
             await this.vectorStore.save(this.storePath);
-            
+
             // Save metadata
             const metadata = {
                 documentsCount: this.documentsCount,
                 lastUpdated: this.lastUpdated,
                 embeddingModel: 'text-embedding-ada-002'
             };
-            
+
             const metadataPath = path.join(this.storePath, 'metadata.json');
             fs.writeFileSync(metadataPath, JSON.stringify(metadata, null, 2));
-            
+
             console.log('Vector store saved successfully');
         } catch (error) {
             console.error('Error saving vector store:', error);
@@ -171,14 +171,14 @@ class VectorStore {
     async clear() {
         try {
             console.log('Starting vector store clear operation...');
-            
+
             // Reset instance variables first to ensure consistent state
             this.documentsCount = 0;
             this.lastUpdated = 'Never';
             this.vectorStore = null;
             this.isInitialized = false;
             this.initializationError = null;
-            
+
             // Remove vector store directory with better error handling
             if (fs.existsSync(this.storePath)) {
                 try {
@@ -206,7 +206,7 @@ class VectorStore {
                     console.warn('Continuing with state reset despite file deletion failure');
                 }
             }
-            
+
             // Try to reinitialize with empty store
             try {
                 await this.initialize();
@@ -218,7 +218,7 @@ class VectorStore {
                 this.isInitialized = false;
                 this.initializationError = initError.message;
             }
-            
+
             console.log('Vector store clear operation completed');
             return {
                 message: 'Vector store cleared successfully',

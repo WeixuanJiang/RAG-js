@@ -33,7 +33,7 @@ body {
 .header-left h1 {
     font-size: 1.8rem;
     margin-bottom: 5px;
-    text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
 }
 
 .header-left p {
@@ -227,6 +227,8 @@ body {
     justify-content: flex-end;
     margin-bottom: 20px;
     animation: slideInRight 0.3s ease;
+    clear: both;
+    position: relative;
 }
 
 .user-message .message-content {
@@ -234,6 +236,8 @@ body {
     color: white;
     border-radius: 15px 15px 5px 15px;
     margin-left: 20%;
+    max-width: 80%;
+    word-wrap: break-word;
 }
 
 .bot-message {
@@ -241,12 +245,15 @@ body {
     align-items: flex-start;
     margin-bottom: 20px;
     animation: slideInLeft 0.3s ease;
+    clear: both;
+    position: relative;
 }
 
 .bot-message .message-content {
     background: rgba(255, 255, 255, 0.9);
     border-radius: 15px 15px 15px 5px;
     max-width: 80%;
+    word-wrap: break-word;
 }
 
 .typing-indicator {
@@ -285,10 +292,14 @@ body {
 }
 
 @keyframes typing {
-    0%, 60%, 100% {
+
+    0%,
+    60%,
+    100% {
         transform: translateY(0);
         opacity: 0.4;
     }
+
     30% {
         transform: translateY(-10px);
         opacity: 1;
@@ -300,6 +311,7 @@ body {
         opacity: 0;
         transform: translateY(20px);
     }
+
     to {
         opacity: 1;
         transform: translateY(0);
@@ -311,6 +323,7 @@ body {
         opacity: 0;
         transform: translateX(20px);
     }
+
     to {
         opacity: 1;
         transform: translateX(0);
@@ -322,6 +335,7 @@ body {
         opacity: 0;
         transform: translateX(-20px);
     }
+
     to {
         opacity: 1;
         transform: translateX(0);
@@ -644,6 +658,7 @@ body {
         max-height: 0;
         overflow: hidden;
     }
+
     to {
         opacity: 1;
         max-height: 1000px;
@@ -657,31 +672,31 @@ body {
         width: 100vw;
         right: -100vw;
     }
-    
+
     .chatbot-header {
         padding: 10px 15px;
     }
-    
+
     .header-left h1 {
         font-size: 1.4rem;
     }
-    
+
     .chat-messages {
         padding: 15px;
     }
-    
+
     .message-content {
         max-width: 90%;
     }
-    
+
     .user-message .message-content {
         margin-left: 10%;
     }
-    
+
     .chat-input-container {
         padding: 20px 15px;
     }
-    
+
     .input-wrapper {
         padding: 12px 15px;
         gap: 10px;
@@ -738,13 +753,13 @@ body {
     border-radius: 15px;
     padding: 25px;
     margin-bottom: 25px;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
     transition: transform 0.3s ease, box-shadow 0.3s ease;
 }
 
 .card:hover {
     transform: translateY(-2px);
-    box-shadow: 0 15px 40px rgba(0,0,0,0.15);
+    box-shadow: 0 15px 40px rgba(0, 0, 0, 0.15);
 }
 
 .card h2 {
@@ -1043,7 +1058,7 @@ body {
     padding: 30px;
     border-radius: 15px;
     text-align: center;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
 }
 
 .loading-spinner i {
@@ -1069,7 +1084,7 @@ body {
     background: white;
     padding: 15px 20px;
     border-radius: 8px;
-    box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
     margin-bottom: 10px;
     border-left: 4px solid #38a169;
     animation: slideIn 0.3s ease;
@@ -1111,6 +1126,7 @@ body {
         transform: translateX(100%);
         opacity: 0;
     }
+
     to {
         transform: translateX(0);
         opacity: 1;
@@ -1122,34 +1138,34 @@ body {
     .container {
         padding: 15px;
     }
-    
+
     .header h1 {
         font-size: 2rem;
     }
-    
+
     .card {
         padding: 20px;
     }
-    
+
     .query-input-container {
         flex-direction: column;
         align-items: stretch;
     }
-    
+
     .query-options {
         flex-direction: column;
         align-items: flex-start;
         gap: 10px;
     }
-    
+
     .status-grid {
         grid-template-columns: 1fr;
     }
-    
+
     .upload-area {
         padding: 30px 20px;
     }
-    
+
     .upload-content i {
         font-size: 2rem;
     }
@@ -1159,11 +1175,11 @@ body {
     .header h1 {
         font-size: 1.8rem;
     }
-    
+
     .card {
         padding: 15px;
     }
-    
+
     .btn {
         padding: 10px 20px;
         font-size: 0.9rem;

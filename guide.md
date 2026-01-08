@@ -289,114 +289,213 @@ Range: -1 to 1 (we use 0 to 1 for normalized vectors)
 ## hybridSearchEngine.js
 
 ### Purpose
-Combines keyword-based search with semantic search using Reciprocal Rank Fusion (RRF).
+Combines keyword-based search with semantic search using LangChain's retriever system and Reciprocal Rank Fusion (RRF).
+
+### Architecture
+
+The module now uses LangChain's `BaseRetriever` class to create custom retrievers:
+
+1. **BM25Retriever** - Custom keyword search retriever
+2. **EnsembleRetriever** - Combines multiple retrievers using RRF
+3. **HybridSearchEngine** - Main class that orchestrates hybrid search
+
+### Class: `BM25Retriever` (extends BaseRetriever)
+
+Custom LangChain retriever for keyword-based search.
+
+#### Constructor
+```javascript
+constructor(documents, k = 4)
+```
+
+**Parameters:**
+- `documents` (Array<Document>): LangChain Document objects
+- `k` (number): Number of results to return
+
+**Initializes:**
+- TF-IDF index using Natural.js
+- Document corpus
+- Result limit (k)
+
+#### Methods
+
+##### `_getRelevantDocuments(query)`
+Internal method called by LangChain's retriever interface.
+
+**Process:**
+1. Preprocess query text (lowercase, remove punctuation)
+2. Tokenize into terms
+3. Calculate TF-IDF scores for each document
+4. Rank documents by score
+5. Return top k documents
+
+**Returns:** Array<Document> - Top k most relevant documents
+
+##### `_preprocessText(text)`
+Preprocesses text for keyword matching.
+
+**Transformations:**
+- Convert to lowercase
+- Remove punctuation (preserve Chinese characters)
+- Normalize whitespace
+- Trim
+
+### Class: `EnsembleRetriever` (extends BaseRetriever)
+
+Combines multiple retrievers using Reciprocal Rank Fusion.
+
+#### Constructor
+```javascript
+constructor(retrievers, weights)
+```
+
+**Parameters:**
+- `retrievers` (Array<BaseRetriever>): Array of retriever instances
+- `weights` (Array<number>): Weight for each retriever (must sum to 1.0)
+
+#### Methods
+
+##### `_getRelevantDocuments(query)`
+Combines results from all retrievers using RRF.
+
+**RRF Algorithm:**
+```javascript
+// For each document appearing in any retriever's results:
+RRF_score = Σ (weight_i / (k + rank_i))
+
+// Where:
+// - weight_i: weight of retriever i
+// - rank_i: rank of document in retriever i's results (1-based)
+// - k: constant (60) to prevent division by small numbers
+```
+
+**Process:**
+1. Query all retrievers in parallel
+2. Collect results with their ranks
+3. Apply RRF formula to calculate combined scores
+4. Sort by combined score
+5. Return merged results
+
+**Returns:** Array<Document> - Fused and ranked documents
 
 ### Class: `HybridSearchEngine`
+
+Main class that provides the hybrid search interface.
 
 #### Constructor
 ```javascript
 constructor(vectorStore)
 ```
-Initializes:
-- TF-IDF (Term Frequency-Inverse Document Frequency) index
-- Document corpus
-- Natural.js tokenizer
+
+**Note:** vectorStore is stored but not used in constructor. It's passed to `buildIndex()` method.
 
 #### Methods
 
-##### `buildIndex(documents)`
-Builds keyword search index from documents.
+##### `buildIndex(documents, vectorStore)`
+Builds both BM25 and ensemble retriever indexes.
 
 **Parameters:**
-- `documents` (Array): Array of document objects
+- `documents` (Array): Document objects to index
+- `vectorStore` (Object): Vector store instance for semantic search
 
 **Process:**
-1. Tokenize each document
-2. Build TF-IDF matrix
-3. Store document references
+1. Convert documents to LangChain Document format
+2. Create BM25Retriever with documents
+3. Get vector store retriever via `vectorStore.asRetriever()`
+4. Create EnsembleRetriever combining both
+5. Set default weights: 0.3 (BM25), 0.7 (semantic)
 
-##### `keywordSearch(query, maxResults = 10)`
-Performs keyword-based search using TF-IDF.
+**Example:**
+```javascript
+await hybridSearchEngine.buildIndex(documents, vectorStore);
+```
 
-**Algorithm:**
-```
-1. Tokenize query
-2. Calculate TF-IDF scores for query terms
-3. Rank documents by relevance
-4. Return top maxResults
-```
+##### `keywordSearch(query, k = 10)`
+Performs keyword-only search using BM25.
+
+**Parameters:**
+- `query` (string): Search query
+- `k` (number): Number of results
 
 **Returns:** Array of results with keyword scores
 
-##### `semanticSearch(query, maxResults = 10)`
-Performs vector similarity search via vectorStore.
+##### `semanticSearch(query, k = 10)`
+Performs semantic-only search using vector store.
 
 **Delegates to:** `vectorStore.similaritySearch()`
 
 ##### `hybridSearch(query, options = {})`
-Combines keyword and semantic search using RRF algorithm.
+Performs hybrid search combining keyword and semantic approaches.
 
 **Parameters:**
 ```javascript
 {
-    maxResults: 10,
-    keywordWeight: 0.3,    // Weight for keyword search
-    semanticWeight: 0.7,   // Weight for semantic search
-    k: 60                  // RRF constant
+    maxResults: 4,
+    keywordWeight: 0.3,
+    semanticWeight: 0.7
 }
 ```
 
-**RRF Algorithm:**
+**Process:**
+1. Check if index is built
+2. Update ensemble retriever weights if needed
+3. Call `ensembleRetriever.getRelevantDocuments(query)`
+4. Format results
+5. Return top maxResults
+
+**Returns:**
 ```javascript
-// For each result in both keyword and semantic searches:
-RRF_score = keywordWeight × (1 / (k + keyword_rank)) +
-            semanticWeight × (1 / (k + semantic_rank))
-
-// Where:
-// - keyword_rank: position in keyword search results (1-based)
-// - semantic_rank: position in semantic search results (1-based)
-// - k: constant (typically 60) to prevent division by small numbers
+[
+    {
+        content: "Document text...",
+        metadata: { source: "file.pdf", chunkIndex: 0 },
+        score: 0.85,
+        searchType: 'hybrid'
+    },
+    ...
+]
 ```
 
-**Process Flow:**
-```
-1. Perform keyword search → get ranked results
-2. Perform semantic search → get ranked results
-3. Merge results using RRF
-4. Normalize scores to 0-1 range
-5. Sort by final score
-6. Return top maxResults
-```
+##### `rebuildIndex()`
+Rebuilds the index using stored documents and vectorStore.
 
-**Example:**
+##### `getIndexStats()`
+Returns index statistics.
+
+**Returns:**
 ```javascript
-const results = await hybridSearch("What is machine learning?", {
-    maxResults: 5,
-    keywordWeight: 0.3,
-    semanticWeight: 0.7
-});
-// Returns results that match both keywords AND semantic meaning
-```
-
-##### `normalizeScores(results)`
-Normalizes scores to 0-1 range using min-max normalization.
-
-**Formula:**
-```
-normalized_score = (score - min) / (max - min)
+{
+    isIndexed: true,
+    documentCount: 107,
+    hasEnsembleRetriever: true,
+    hasBM25Retriever: true
+}
 ```
 
 ### Key Concepts
 
-**Why Hybrid Search?**
+**Why LangChain Integration?**
+- **Standardization**: Uses LangChain's retriever interface
+- **Extensibility**: Easy to add new retriever types
+- **Compatibility**: Works seamlessly with other LangChain components
+- **Best Practices**: Leverages well-tested base classes
+
+**BaseRetriever Benefits:**
+- Consistent interface across all retrievers
+- Built-in error handling
+- Async/await support
+- Easy composition and chaining
+
+**RRF (Reciprocal Rank Fusion):**
+- Rank-based fusion (position matters, not absolute scores)
+- No need to normalize different score ranges
+- Proven effective in information retrieval research
+- Simple yet powerful algorithm
+
+**Hybrid Search Advantages:**
 - **Keyword search**: Good for exact matches, acronyms, technical terms
 - **Semantic search**: Good for conceptual matches, paraphrases
-- **Hybrid**: Best of both worlds
-
-**RRF Benefits:**
-- No need to normalize different score ranges
-- Rank-based (position matters, not absolute scores)
-- Proven effective in information retrieval
+- **Hybrid**: Best of both worlds - catches both exact and semantic matches
 
 ---
 
